@@ -26,44 +26,8 @@ Este proyecto forma parte del sistema de interacción emocional del universo **Y
 - Postman (pruebas de API)  
 - JSON como canal de entrada/salida
 
----
-
-## ▶️ Instalación rápida
-
-```bash
-git clone https://github.com/tu_usuario/mybit-mirror.git
-cd mybit-mirror
-pip install flask flask-cors
-python app.py
-```
-
----
-
-## 🧪 Cómo usar
-
-1. Ejecuta el servidor con `python app.py`
-2. Abre Postman y realiza una petición `POST` a:
-
-```
-http://127.0.0.1:5000/analizar
-```
-
-Con el siguiente JSON:
-
-```json
-{
-  "texto": "Me siento confundida pero quiero seguir."
-}
-```
-
-3. Recibirás un JSON de respuesta con la emoción, el color y una reflexión interpretativa.
-
----
-
 ## 🖤 Nota
 
 Este teclado **no busca diagnosticar** ni reemplazar procesos terapéuticos. Su propósito es ofrecer un reflejo simbólico y personalizado de las emociones transmitidas por texto.
 
 ---
-
-Desarrollado con 💬 y psicología narrativa para el proyecto **YouYo**.
