@@ -1,0 +1,38 @@
+# IntelliJ IDEA Project Files
+.idea/
+*.iml
+*.ipr
+*.iws
+# Android Studio captures
+captures/
+# Gradle files
+.gradle/
+build/
+# Local configuration file (sdk path, etc)
+local.properties
+#Keystore files
+*.jks
+*.keystore
+# Android Profiler
+*.hprof
+# Log files
+*.log
+# Other
+.DS_Store
+*~
+# APK/AAB files
+*.apk
+*.aab
+*.ap_
+# C/C++ temp files
+.cxx/
+# Lint
+lint/reports/
+# Android Studio / IntelliJ various files
+app/release/output.json
+app/debug/output.json
+# Temp files
+*.tmp
+# Kotlin
+*.cast
+*KSpec.kt

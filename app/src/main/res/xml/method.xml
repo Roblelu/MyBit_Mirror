@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Este archivo define las propiedades del método de entrada (IME),
+    como los subtipos de idioma que soporta y la actividad de configuración.
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+
+
+
+    android:settingsActivity="com.mybitmirror.SettingsActivity"
+
+
+
+    android:supportsSwitchingToNextInputMethod="true">
+    <!--
+        android:settingsActivity: Especifica el nombre completo de la Activity
+        que se usará para configurar este IME.
+        Asegúrate de que 'com.mybitmirror.SettingsActivity' coincida con el nombre de tu paquete
+        y la Activity de configuración que crearás más adelante.
+    -->
+    <!--
+        android:supportsSwitchingToNextInputMethod: Un valor booleano que indica
+        si el IME permite a los usuarios cambiar fácilmente al siguiente IME.
+        Generalmente se establece en true.
+    -->
+
+    <!--
+        Cada <subtype> define una combinación de modo de entrada y configuración regional (idioma).
+        Puedes tener múltiples subtipos.
+    -->
+
+    <subtype
+        android:label="Español (MyBit Mirror)"
+        android:icon="@mipmap/ic_launcher"
+        android:imeSubtypeLocale="es_ES"
+        android:imeSubtypeMode="keyboard" />
+
+    <subtype
+        android:label="English (US) (MyBit Mirror)"
+        android:icon="@mipmap/ic_launcher"
+        android:imeSubtypeLocale="en_US"
+        android:imeSubtypeMode="keyboard" />
+
+    <!--
+        Puedes añadir más subtipos para otros idiomas o configuraciones regionales aquí.
+        Por ejemplo:
+        <subtype
+            android:label="Français (MyBit Mirror)"
+            android:icon="@mipmap/ic_launcher"
+            android:imeSubtypeLocale="fr_FR"
+            android:imeSubtypeMode="keyboard" />
+    -->
+</input-method>
