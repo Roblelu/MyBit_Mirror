@@ -3,10 +3,12 @@ package com.mybitmirror // o com.mybitmirror.ui.theme si lo tienes allí
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log // Import para Log
 import android.view.inputmethod.InputMethodManager
+import com.mybitmirror.EmotionEntry // Importar EmotionEntry
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -47,7 +49,10 @@ object SettingsDestinations {
 // Enum para las diferentes pantallas dentro de SettingsActivity
 enum class SettingsNavigation {
     MAIN_SETTINGS,
-    EMOTION_HISTORY
+    EMOTION_HISTORY,
+    ACCOUNT_MANAGEMENT,
+    EMOTIONAL_CONNECTIONS,
+    DATA_CONSENT
 }
 
 private const val ACTIVITY_TAG = "SettingsActivity" // TAG para logs de esta actividad
@@ -65,8 +70,21 @@ class SettingsActivity : ComponentActivity() {
 
         // Determinar la pantalla inicial basada en el Intent
         val startDestinationString = intent.getStringExtra(SettingsDestinations.EXTRA_START_DESTINATION)
+        var initialHistoryList: List<EmotionEntry> = emptyList()
+
         val initialScreen = if (SettingsDestinations.DESTINATION_HISTORY == startDestinationString) {
             Log.d(ACTIVITY_TAG, "Starting with EMOTION_HISTORY due to intent extra.")
+            // Recuperar la lista del intent
+            val receivedHistory: ArrayList<EmotionEntry>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra("emotion_history_data", EmotionEntry::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra("emotion_history_data")
+            }
+            initialHistoryList = receivedHistory ?: listOf(
+                EmotionEntry("Info", "No se pudo cargar el historial desde el teclado.", "Ahora")
+            )
+            Log.d(ACTIVITY_TAG, "Received history list size: ${initialHistoryList.size}")
             SettingsNavigation.EMOTION_HISTORY
         } else {
             Log.d(ACTIVITY_TAG, "Starting with MAIN_SETTINGS.")
@@ -79,6 +97,8 @@ class SettingsActivity : ComponentActivity() {
         setContent {
             MyBitMirrorTheme {
                 var currentScreen by rememberSaveable(initialScreen) { mutableStateOf(initialScreen) }
+                var currentHistoryList by rememberSaveable(initialHistoryList) { mutableStateOf(initialHistoryList) }
+
 
                 // Usar los estados a nivel de Actividad para que onResume pueda actualizarlos
                 // y Compose reaccione a esos cambios.
@@ -116,15 +136,44 @@ class SettingsActivity : ComponentActivity() {
                                 updateKeyboardStatus() // Actualiza los estados de la Actividad
                             },
                             onNavigateToHistory = {
+                                // Cuando navegamos desde el menú principal, no tenemos datos del ViewModel
+                                // así que usamos una lista de ejemplo o vacía.
+                                currentHistoryList = listOf(
+                                     EmotionEntry("Info", "Historial completo disponible desde el teclado.", "Ahora")
+                                )
                                 currentScreen = SettingsNavigation.EMOTION_HISTORY
+                            },
+                            onNavigateToAccountManagement = {
+                                currentScreen = SettingsNavigation.ACCOUNT_MANAGEMENT
+                            },
+                            onNavigateToEmotionalConnections = {
+                                currentScreen = SettingsNavigation.EMOTIONAL_CONNECTIONS
+                            },
+                            onNavigateToDataConsent = {
+                                currentScreen = SettingsNavigation.DATA_CONSENT
                             }
                         )
                     }
-                } else { // currentScreen == SettingsNavigation.EMOTION_HISTORY
-                    EmotionHistoryScreen( // Asumiendo que EmotionHistoryScreen.kt está en el mismo paquete
-                        onNavigateBack = {
-                            currentScreen = SettingsNavigation.MAIN_SETTINGS
-                        }
+                }
+                SettingsNavigation.EMOTION_HISTORY -> {
+                    EmotionHistoryScreen(
+                        historyList = currentHistoryList,
+                        onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS }
+                    )
+                }
+                SettingsNavigation.ACCOUNT_MANAGEMENT -> {
+                    AccountManagementScreen(
+                        onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS }
+                    )
+                }
+                SettingsNavigation.EMOTIONAL_CONNECTIONS -> {
+                    EmotionalConnectionsScreen(
+                        onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS }
+                    )
+                }
+                SettingsNavigation.DATA_CONSENT -> {
+                    DataConsentScreen(
+                        onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS }
                     )
                 }
             }
@@ -173,7 +222,10 @@ fun SettingsScreenContent(
     onEnableKeyboardClick: () -> Unit,
     onSelectKeyboardClick: () -> Unit,
     onRefreshStatusClick: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToAccountManagement: () -> Unit,
+    onNavigateToEmotionalConnections: () -> Unit,
+    onNavigateToDataConsent: () -> Unit
 ) {
     Column(
         modifier = modifier
@@ -213,7 +265,30 @@ fun SettingsScreenContent(
             Text("Ver Historial de Emociones")
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp)) // Aumentar espaciado
+
+        Button(
+            onClick = onNavigateToAccountManagement,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Gestión de Cuenta/Perfil")
+        }
+
+        Button(
+            onClick = onNavigateToEmotionalConnections,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Gestión de Conexiones Emocionales")
+        }
+
+        Button(
+            onClick = onNavigateToDataConsent,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Consentimiento de Datos")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp)) // Aumentar espaciado
 
         Button(
             onClick = onRefreshStatusClick,
@@ -256,11 +331,140 @@ fun SettingsActivityPreview() {
                     onEnableKeyboardClick = {},
                     onSelectKeyboardClick = {},
                     onRefreshStatusClick = {},
-                    onNavigateToHistory = { currentScreen = SettingsNavigation.EMOTION_HISTORY }
+                    onNavigateToHistory = {
+                        // Preview: Navegar al historial con datos de ejemplo
+                        // En la app real, esta lambda es manejada por la Activity
+                        currentScreen = SettingsNavigation.EMOTION_HISTORY
+                    },
+                    onNavigateToAccountManagement = { currentScreen = SettingsNavigation.ACCOUNT_MANAGEMENT },
+                    onNavigateToEmotionalConnections = { currentScreen = SettingsNavigation.EMOTIONAL_CONNECTIONS },
+                    onNavigateToDataConsent = { currentScreen = SettingsNavigation.DATA_CONSENT }
                 )
             }
-        } else {
-            EmotionHistoryScreen(onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS })
+        } else if (currentScreen == SettingsNavigation.EMOTION_HISTORY) {
+            // Para el preview, podemos simular una lista aquí
+            val previewHistory = listOf(
+                EmotionEntry("Info", "Historial de preview.", "Preview Time")
+            )
+            EmotionHistoryScreen(
+                historyList = previewHistory,
+                onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS }
+            )
+        } else if (currentScreen == SettingsNavigation.ACCOUNT_MANAGEMENT) {
+            AccountManagementScreen(onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS })
+        } else if (currentScreen == SettingsNavigation.EMOTIONAL_CONNECTIONS) {
+            EmotionalConnectionsScreen(onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS })
+        } else if (currentScreen == SettingsNavigation.DATA_CONSENT) {
+            DataConsentScreen(onNavigateBack = { currentScreen = SettingsNavigation.MAIN_SETTINGS })
+        }
+    }
+}
+
+// Nuevas pantallas Composable
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AccountManagementScreen(onNavigateBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Gestión de Cuenta") },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onNavigateBack) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.ArrowBack,
+                            contentDescription = "Volver"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Aquí se gestionará la cuenta de usuario.")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmotionalConnectionsScreen(onNavigateBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Gestión de Conexiones Emocionales") },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onNavigateBack) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.ArrowBack,
+                            contentDescription = "Volver"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Aquí se gestionarán las conexiones emocionales.")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DataConsentScreen(onNavigateBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Consentimiento de Datos") },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onNavigateBack) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.ArrowBack,
+                            contentDescription = "Volver"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Aquí se gestionará el consentimiento de datos.")
         }
     }
 }

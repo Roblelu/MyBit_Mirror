@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
@@ -37,10 +38,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+// import androidx.compose.runtime.mutableStateOf // No longer needed for currentViewMode
+// import androidx.compose.runtime.remember // No longer needed for currentViewMode
+// import androidx.compose.runtime.setValue // No longer needed for currentViewMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
@@ -51,8 +53,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.findViewTreeViewModelStoreOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -72,21 +76,27 @@ import androidx.compose.material.icons.filled.AccountCircle // Para Perfil
 import androidx.compose.material.icons.filled.Palette // Para Temas
 import androidx.compose.material.icons.filled.Language // Para Idiomas
 import androidx.compose.material.icons.filled.Link // Para Invitar/Conectar
+import com.mybitmirror.managers.EmotionAnalysisManager
+import com.mybitmirror.ui.composables.RhombusView
+import com.mybitmirror.utils.EmotionColorMapper
+import kotlinx.coroutines.launch
 
 
 // TAG para los logs.
 private const val TAG = "MyBitMirrorService"
 
-// Enum para los modos de vista del teclado (NIVEL DE ARCHIVO)
-enum class KeyboardViewMode {
-    INPUTTING, // Muestra el teclado QWERTY
-    MENU_OPTIONS // Muestra la pantalla de opciones del menú
-}
+// KeyboardViewMode enum is now in KeyboardViewModel.kt
+// import com.mybitmirror.KeyboardViewMode // Import the new location
 
 class MyBitMirrorInputMethodService : InputMethodService(),
     LifecycleOwner,
     ViewModelStoreOwner,
     SavedStateRegistryOwner {
+
+    private val keyboardViewModel: KeyboardViewModel by lazy {
+        ViewModelProvider(this).get(KeyboardViewModel::class.java)
+    }
+    private val emotionAnalysisManager = EmotionAnalysisManager()
 
     private lateinit var lifecycleRegistry: LifecycleRegistry
     private lateinit var savedStateRegistryController: SavedStateRegistryController
@@ -161,6 +171,7 @@ class MyBitMirrorInputMethodService : InputMethodService(),
             setContent {
                 Log.d(TAG, "setContent being called")
                 MyBitKeyboardScreen(
+                    keyboardViewModel = keyboardViewModel, // Pass the ViewModel
                     onChar = { char -> sendChar(char) },
                     onDelete = { sendDelete() },
                     onEnter = { sendEnter() }
@@ -190,20 +201,45 @@ class MyBitMirrorInputMethodService : InputMethodService(),
     private fun sendChar(char: Char) {
         Log.d(TAG, "sendChar: $char")
         currentInputConnection?.commitText(char.toString(), 1)
+        keyboardViewModel.appendChar(char)
+        if (char == ' ' || char == '.' || char == '!' || char == '?') {
+            triggerEmotionAnalysis()
+        }
     }
 
     private fun sendDelete() {
         Log.d(TAG, "sendDelete")
+        keyboardViewModel.deleteLastChar()
         sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DEL)
     }
 
     private fun sendEnter() {
         Log.d(TAG, "sendEnter")
+        triggerEmotionAnalysis() // Analizar antes de enviar/limpiar
         val editorInfo = currentInputEditorInfo
         if (editorInfo != null && editorInfo.actionId != 0 && editorInfo.actionId != android.view.inputmethod.EditorInfo.IME_ACTION_NONE) {
             currentInputConnection?.performEditorAction(editorInfo.actionId)
         } else {
             currentInputConnection?.commitText("\n", 1)
+        }
+        keyboardViewModel.clearCurrentText() // Limpiar después de enviar
+    }
+
+    private fun triggerEmotionAnalysis() {
+        val textToAnalyze = keyboardViewModel.getCurrentText()
+        if (textToAnalyze.isNotBlank()) {
+            keyboardViewModel.viewModelScope.launch {
+                Log.d(TAG, "Analizando texto: '$textToAnalyze'")
+                try {
+                    val result = emotionAnalysisManager.analyzeEmotionMock(textToAnalyze)
+                    keyboardViewModel.updateUserEmotion(result.dominantEmotion, result.justification)
+                    Log.d(TAG, "Emoción actualizada: ${result.dominantEmotion}, Justificación: ${result.justification}")
+                    // No limpiar buffer aquí para análisis continuo, se limpia en sendEnter o por otra lógica.
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error al analizar emoción: ", e)
+                    keyboardViewModel.resetUserEmotionToNeutral()
+                }
+            }
         }
     }
 
@@ -227,11 +263,17 @@ class MyBitMirrorInputMethodService : InputMethodService(),
 
 @Composable
 fun TopBar(
+    keyboardViewModel: KeyboardViewModel, // ViewModel para el estado emocional
     context: Context, // Usar Context de android.content
-    onRhombusClick: () -> Unit, // Mantenida por si se usa para algo más que lanzar intent
+    // onRhombusClick: () -> Unit, // Ya no se necesita si la lógica está aquí
     onDictationClick: () -> Unit,
     onMenuIconClick: () -> Unit
 ) {
+    val userEmotionState by keyboardViewModel.userEmotionState.collectAsState()
+    val emotionHistoryList by keyboardViewModel.emotionHistory.collectAsState() // Collect history
+    val currentEmotion = userEmotionState.primaryEmotion
+    val rhombusColor = EmotionColorMapper.getColorForEmotion(currentEmotion)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -241,24 +283,33 @@ fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        IconButton(onClick = {
-            Log.d(TAG, "Rhombus Clicked - Launching SettingsActivity for History")
-            val intent = Intent(context, SettingsActivity::class.java).apply {
-                putExtra(SettingsDestinations.EXTRA_START_DESTINATION, SettingsDestinations.DESTINATION_HISTORY)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            // onRhombusClick() // Llama si es necesario
-        }) {
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = "Historial de Emociones",
-                modifier = Modifier.size(28.dp)
+        Box(
+            modifier = Modifier
+                .size(40.dp) // Tamaño del área clickeable
+                .clickable {
+                    Log.d(TAG, "RhombusView Clicked - Launching SettingsActivity for History with actual data")
+                    val intent = Intent(context, SettingsActivity::class.java).apply {
+                        putExtra(
+                            SettingsDestinations.EXTRA_START_DESTINATION,
+                            SettingsDestinations.DESTINATION_HISTORY
+                        )
+                        // Convert List to ArrayList and add as ParcelableArrayListExtra
+                        putParcelableArrayListExtra("emotion_history_data", ArrayList(emotionHistoryList))
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                }
+                .padding(6.dp), // Padding interno
+            contentAlignment = Alignment.Center
+        ) {
+            RhombusView(
+                modifier = Modifier.fillMaxSize(), // El Rombo ocupa el espacio del Box interno
+                color = rhombusColor
             )
         }
 
         Box(
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp), // Mantener el peso para empujar el resto
             contentAlignment = Alignment.CenterStart
         ) {
             Text("Sugerencias...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -276,13 +327,15 @@ fun TopBar(
 
 @Composable
 fun MyBitKeyboardScreen(
+    keyboardViewModel: KeyboardViewModel, // Add ViewModel parameter
     onChar: (Char) -> Unit,
     onDelete: () -> Unit,
     onEnter: () -> Unit
 ) {
     Log.d(TAG, "MyBitKeyboardScreen Composable executing")
     val context = LocalContext.current
-    var currentViewMode by remember { mutableStateOf(KeyboardViewMode.INPUTTING) }
+    // Collect currentViewMode from the ViewModel
+    val currentViewMode by keyboardViewModel.currentViewMode.collectAsState()
 
     Surface(
         modifier = Modifier.fillMaxWidth(), // Quitamos .fillMaxHeight() para que la altura sea wrap_content
@@ -293,31 +346,22 @@ fun MyBitKeyboardScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             TopBar(
+                keyboardViewModel = keyboardViewModel, // Pasar el ViewModel
                 context = context,
-                onRhombusClick = {
-                    Log.d(TAG, "Rhombus Clicked - Launching SettingsActivity for History")
-                    val intent = Intent(context, SettingsActivity::class.java).apply {
-                        putExtra(SettingsDestinations.EXTRA_START_DESTINATION, SettingsDestinations.DESTINATION_HISTORY)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                },
+                // onRhombusClick se maneja dentro de TopBar ahora
                 onDictationClick = { Log.d(TAG, "Dictation Clicked") },
                 onMenuIconClick = {
-                    currentViewMode = if (currentViewMode == KeyboardViewMode.INPUTTING) {
-                        KeyboardViewMode.MENU_OPTIONS
-                    } else {
-                        KeyboardViewMode.INPUTTING // Permitir volver al teclado si se toca de nuevo
-                    }
-                    Log.d(TAG, "Menu icon clicked, changing view to $currentViewMode")
+                    keyboardViewModel.toggleMenuOptions() // Use ViewModel function
+                    Log.d(TAG, "Menu icon clicked, view toggled via ViewModel")
                 }
             )
 
             // Spacer(modifier = Modifier.height(4.dp)) // Opcional, podemos quitarlo si el padding interno es suficiente
 
-            when (currentViewMode) {
+            when (currentViewMode) { // This currentViewMode is now from the ViewModel
                 KeyboardViewMode.INPUTTING -> {
                     KeyboardInputArea(
+                        keyboardViewModel = keyboardViewModel, // Pass the ViewModel
                         onChar = onChar,
                         onDelete = onDelete,
                         onEnter = onEnter
@@ -327,8 +371,8 @@ fun MyBitKeyboardScreen(
                     MenuOptionsScreen(
                         context = context,
                         onNavigateBackToKeyboard = {
-                            currentViewMode = KeyboardViewMode.INPUTTING
-                            Log.d(TAG, "Navigating back to INPUTTING view")
+                            keyboardViewModel.setKeyboardViewMode(KeyboardViewMode.INPUTTING) // Use ViewModel function
+                            Log.d(TAG, "Navigating back to INPUTTING view via ViewModel")
                         }
                     )
                 }
@@ -339,13 +383,23 @@ fun MyBitKeyboardScreen(
 
 @Composable
 fun KeyboardInputArea(
+    keyboardViewModel: KeyboardViewModel, // Add ViewModel parameter
     onChar: (Char) -> Unit,
     onDelete: () -> Unit,
     onEnter: () -> Unit
 ) {
+    // Collect isSymbolMode from the ViewModel
+    val isSymbolMode by keyboardViewModel.isSymbolMode.collectAsState()
+
     val row1Keys = "QWERTYUIOP"
     val row2Keys = "ASDFGHJKL"
     val row3Keys = "ZXCVBNM"
+
+    val numSymRow1Keys = "1234567890"
+    val numSymRow2Keys = "@#\$%&_+-()"
+    // Using ".,?!'*\"<>/;" as it's safer with quotes and slashes for direct use
+    val numSymRow3Keys = ".,?!'*\"<>/;"
+
 
     Column(
         modifier = Modifier
@@ -354,25 +408,48 @@ fun KeyboardInputArea(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        KeyboardRow(keys = row1Keys, onChar = onChar, keyAspectRatio = 0.8f)
-        KeyboardRow(keys = row2Keys, onChar = onChar, modifier = Modifier.padding(horizontal = 10.dp), keyAspectRatio = 0.8f)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            KeyButton(text = "↑", onClick = { Log.d(TAG, "Shift Clicked") }, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
-            row3Keys.forEach { char ->
-                KeyButton(text = char.toString(), onClick = { onChar(char) }, modifier = Modifier.weight(1f).aspectRatio(0.8f))
+        if (isSymbolMode) {
+            KeyboardRow(keys = numSymRow1Keys, onChar = onChar, keyAspectRatio = 0.8f)
+            KeyboardRow(keys = numSymRow2Keys, onChar = onChar, modifier = Modifier.padding(horizontal = 10.dp), keyAspectRatio = 0.8f)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                // Shift button - placeholder, can be adapted for symbol mode if needed
+                KeyButton(text = "↑", onClick = { Log.d(TAG, "Shift Clicked (Symbol Mode)") }, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
+                numSymRow3Keys.forEach { char ->
+                    KeyButton(text = char.toString(), onClick = { onChar(char) }, modifier = Modifier.weight(1f).aspectRatio(0.8f))
+                }
+                KeyButton(text = "⌫", onClick = onDelete, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
             }
-            KeyButton(text = "⌫", onClick = onDelete, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
+        } else {
+            KeyboardRow(keys = row1Keys, onChar = onChar, keyAspectRatio = 0.8f)
+            KeyboardRow(keys = row2Keys, onChar = onChar, modifier = Modifier.padding(horizontal = 10.dp), keyAspectRatio = 0.8f)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                KeyButton(text = "↑", onClick = { Log.d(TAG, "Shift Clicked (QWERTY Mode)") }, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
+                row3Keys.forEach { char ->
+                    KeyButton(text = char.toString(), onClick = { onChar(char) }, modifier = Modifier.weight(1f).aspectRatio(0.8f))
+                }
+                KeyButton(text = "⌫", onClick = onDelete, modifier = Modifier.weight(1.5f).aspectRatio(0.8f))
+            }
         }
+
+        // Bottom row - common for both modes
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            KeyButton(text = "?123", onClick = { Log.d(TAG, "?123 Clicked") }, modifier = Modifier.weight(2f).aspectRatio(1.1f))
+            KeyButton(
+                text = if (isSymbolMode) "ABC" else "?123",
+                onClick = { keyboardViewModel.toggleSymbolMode() }, // Use ViewModel function
+                modifier = Modifier.weight(2f).aspectRatio(1.1f)
+            )
             KeyButton(text = ",", onClick = { onChar(',') }, modifier = Modifier.weight(1f).aspectRatio(1.1f))
             KeyButton(text = "ESPACIO", onClick = { onChar(' ') }, modifier = Modifier.weight(4f).aspectRatio(1.1f))
             KeyButton(text = ".", onClick = { onChar('.') }, modifier = Modifier.weight(1f).aspectRatio(1.1f))
@@ -514,7 +591,7 @@ fun KeyButton(
         Text(
             text = text,
             fontSize = when {
-                text.length > 1 && (text == "ESPACIO" || text == "?123") -> 12.sp
+                text.length > 1 && (text == "ESPACIO" || text == "?123" || text == "ABC") -> 12.sp
                 text.length == 1 && text[0].isLetterOrDigit() -> 18.sp
                 else -> 16.sp
             },
